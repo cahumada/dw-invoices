@@ -14,7 +14,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("iaas.app.dw.invoices")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+38f6edd0029a7536adf0a66ba61fbf143ec627b4")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+26a45be1a07b45269c0899b0f95b1f61fab87df0")]
 [assembly: System.Reflection.AssemblyProductAttribute("iaas.app.dw.invoices")]
 [assembly: System.Reflection.AssemblyTitleAttribute("iaas.app.dw.invoices")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]

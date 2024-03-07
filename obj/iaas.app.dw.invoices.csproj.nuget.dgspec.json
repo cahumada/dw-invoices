@@ -1,17 +1,17 @@
 {
   "format": 1,
   "restore": {
-    "D:\\Proyectos\\GITHub-CA\\dw-invoices\\iaas.app.dw.invoices\\iaas.app.dw.invoices.csproj": {}
+    "D:\\Proyectos\\GITHub-CA\\iaas.app.dw.invoices\\iaas.app.dw.invoices.csproj": {}
   },
   "projects": {
-    "D:\\Proyectos\\GITHub-CA\\dw-invoices\\iaas.app.dw.invoices\\iaas.app.dw.invoices.csproj": {
+    "D:\\Proyectos\\GITHub-CA\\iaas.app.dw.invoices\\iaas.app.dw.invoices.csproj": {
       "version": "1.0.0",
       "restore": {
-        "projectUniqueName": "D:\\Proyectos\\GITHub-CA\\dw-invoices\\iaas.app.dw.invoices\\iaas.app.dw.invoices.csproj",
+        "projectUniqueName": "D:\\Proyectos\\GITHub-CA\\iaas.app.dw.invoices\\iaas.app.dw.invoices.csproj",
         "projectName": "iaas.app.dw.invoices",
-        "projectPath": "D:\\Proyectos\\GITHub-CA\\dw-invoices\\iaas.app.dw.invoices\\iaas.app.dw.invoices.csproj",
+        "projectPath": "D:\\Proyectos\\GITHub-CA\\iaas.app.dw.invoices\\iaas.app.dw.invoices.csproj",
         "packagesPath": "C:\\Users\\Cristian-Home\\.nuget\\packages\\",
-        "outputPath": "D:\\Proyectos\\GITHub-CA\\dw-invoices\\iaas.app.dw.invoices\\obj\\",
+        "outputPath": "D:\\Proyectos\\GITHub-CA\\iaas.app.dw.invoices\\obj\\",
         "projectStyle": "PackageReference",
         "fallbackFolders": [
           "C:\\Program Files (x86)\\Microsoft Visual Studio\\Shared\\NuGetPackages"
@@ -26,7 +26,8 @@
         ],
         "sources": {
           "C:\\Program Files\\dotnet\\library-packs": {},
-          "http://dmz-test-nexus.gsdmz.net.ar:8081/repository/nuget-group/index.json": {}
+          "http://dmz-test-nexus.gsdmz.net.ar:8081/repository/nuget-group/index.json": {},
+          "https://api.nuget.org/v3/index.json": {}
         },
         "frameworks": {
           "net8.0": {
@@ -46,7 +47,7 @@
           "dependencies": {
             "Swashbuckle.AspNetCore": {
               "target": "Package",
-              "version": "[6.4.0, )"
+              "version": "[6.5.0, )"
             }
           },
           "imports": [
