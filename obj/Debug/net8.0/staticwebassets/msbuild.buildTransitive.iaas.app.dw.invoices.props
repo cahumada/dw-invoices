@@ -1,0 +1,3 @@
+﻿<Project>
+  <Import Project="..\buildMultiTargeting\iaas.app.dw.invoices.props" />
+</Project>
