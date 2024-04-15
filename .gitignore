@@ -8,6 +8,7 @@
 *.suo
 *.user
 *.userosscache
+*.futdcache.v2
 *.sln.docstates
 
 # User-specific files (MonoDevelop/Xamarin Studio)
@@ -30,7 +31,8 @@ bld/
 [Ll]ogs/
 
 # Visual Studio 2015/2017 cache/options directory
-.vs/
+.vs
+*/.vs
 
 
 # Build Results of an ATL Project
