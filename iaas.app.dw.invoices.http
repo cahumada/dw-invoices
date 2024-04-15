@@ -1,6 +1,0 @@
-@iaas.app.dw.invoices_HostAddress = http://localhost:5073
-
-GET {{iaas.app.dw.invoices_HostAddress}}/weatherforecast/
-Accept: application/json
-
-###
