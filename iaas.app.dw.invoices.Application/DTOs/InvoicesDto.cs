@@ -120,16 +120,6 @@ namespace iaas.app.dw.invoices.Application.DTOs
         public DateTime? ExpirCAE { get; set; }
 
         /// <summary>
-        /// Mensaje de respuesta del WS
-        /// </summary>
-        public List<MessagesDto> Messages { get; set; }
-
-        /// <summary>
-        /// Indicador que se proceso correctamente la factura
-        /// </summary>
-        public bool IsProcessOk { get; set; }
-
-        /// <summary>
         /// Digito verificador asociado al código de barras
         /// </summary>
         public uint VerifiedDigit { get; set; }

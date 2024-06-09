@@ -1,10 +1,8 @@
 ﻿using Microsoft.Extensions.FileProviders;
 using Microsoft.Extensions.Options;
-using Microsoft.OpenApi.Any;
 using Microsoft.OpenApi.Models;
 using Swashbuckle.AspNetCore.SwaggerGen;
 using Swashbuckle.AspNetCore.SwaggerUI;
-using System.Text.RegularExpressions;
 
 namespace iaas.app.dw.invoices.API
 {
@@ -12,10 +10,10 @@ namespace iaas.app.dw.invoices.API
     {
         public static IServiceCollection AddCustomizedSwagger(this IServiceCollection services, IConfiguration configuration, IWebHostEnvironment env)
         {
-            if (env.IsProduction())
-            {
-                return services;
-            }
+            //if (env.IsProduction())
+            //{
+            //    return services;
+            //}
 
             SwaggerSettings swaggerSettings = GetSettings(services, configuration);
             services.AddEndpointsApiExplorer();
@@ -24,7 +22,7 @@ namespace iaas.app.dw.invoices.API
                 OpenApiInfo openApiInfo = GetOpenApiInfo(swaggerSettings);
                 options.DocumentFilter<LowerCaseDocumentFilter>(Array.Empty<object>());
                 options.SwaggerDoc("v1", openApiInfo);
-                options.CustomSchemaIds((Type type) => Regex.Replace(type.ToString(), "[^a-zA-Z0-9._-]+", ""));
+                //options.CustomSchemaIds((Type type) => Regex.Replace(type.ToString(), "[^a-zA-Z0-9._-]+", ""));
                 string text = (string.IsNullOrEmpty(swaggerSettings.DocumentName) ? "DW_Generic_Documentation" : swaggerSettings.DocumentName);
                 string path = text + ".xml";
                 string text2 = Path.Combine(AppContext.BaseDirectory, path);

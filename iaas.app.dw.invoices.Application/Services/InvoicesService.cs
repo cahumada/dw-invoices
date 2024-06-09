@@ -5,10 +5,8 @@ using iaas.app.dw.invoices.Application.Services.Interfaces;
 using iaas.app.dw.invoices.Domain.Entities;
 using iaas.app.dw.invoices.Domain.Repositories;
 using Microsoft.AspNetCore.Http;
-using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Configuration;
 using Serilog;
-using System.Runtime.CompilerServices;
 using System.Security;
 using System.Text;
 using System.Xml;
@@ -28,6 +26,10 @@ namespace iaas.app.dw.invoices.Application.Services
         private readonly ILogger _logger;
         private readonly MemoryCacher _memoryCacher;
 
+
+        // Códigos de nota de crédito y débito en AFIP
+        private readonly int[] _cancelationInvoices = new int[] { 2, 3, 7, 8, 12, 13, 52, 53, 202, 203, 207, 208, 212, 213 };
+
         public InvoicesService(IConfiguration configuration,
                                ICertificatesRepository certificatesRepository,
                                ITokensRepository tokensRepository,
@@ -45,7 +47,7 @@ namespace iaas.app.dw.invoices.Application.Services
             _memoryCacher = memoryCacher;
         }
 
-        #region "Login WS"
+        #region Login
         private async Task<Tokens> LoginAfip(string clientId, TypeWebServicesEnum typeWebService = TypeWebServicesEnum.wsfe)
         {
             XmlDocument loginTicketRequest;
@@ -230,7 +232,7 @@ namespace iaas.app.dw.invoices.Application.Services
         }
         #endregion
 
-        #region "Request Client Information"
+        #region Request Client Information
         /// <summary>
         /// Consulta de inscripción en AFIP
         /// </summary>
@@ -295,8 +297,7 @@ namespace iaas.app.dw.invoices.Application.Services
         }
         #endregion
 
-
-        #region "Request Catalogs"
+        #region Request Catalogs
         /// <summary>
         /// Tipos de catálogos obtenidos en AFIP por cliente
         /// </summary>
@@ -430,7 +431,7 @@ namespace iaas.app.dw.invoices.Application.Services
 
                     }
                 }
-                
+
                 response.Data = result;
                 return response;
 
@@ -444,9 +445,9 @@ namespace iaas.app.dw.invoices.Application.Services
                 return response;
             }
         }
-
         #endregion
 
+        #region Invoices
         /// <summary>
         /// Consulta de último numero de recibo por cliente, punto de venta y tipo de comprobante
         /// </summary>
@@ -456,13 +457,454 @@ namespace iaas.app.dw.invoices.Application.Services
         /// <returns></returns>
         public async Task<ApiResponseDto<int>> GetLastInvoice(string clientId, int pointOfSale, int typeProof)
         {
+            var token = await GetToken(clientId, TypeWebServicesEnum.wsfe);
+
+            return await GetLastInvoice(token, pointOfSale, typeProof);
+        }
+
+        /// <summary>
+        /// Generación de comprobante en AFIP
+        /// </summary>
+        /// <param name="clientId">Código de cliente vinculado al servicio AFIP</param>
+        /// <param name="invoice">Comprobante a emitir en AFIP</param>
+        /// <returns></returns>
+        public async Task<ApiResponseDto<InvoicesDto>> GenerateInvoice(string clientId, InvoicesDto invoice)
+        {
+            ApiResponseDto<InvoicesDto> response = new();
+            // Autenticación en AFIP
+            WSFE.FEAuthRequest requestAuth = new();
+            // Solicitud de ticket en AFIP
+            WSFE.FECAERequest request = new();
+            // Cabecera de solicitud en AFIP
+            WSFE.FECAECabRequest requestHeader = new();
+            // Detalle de solicitud en AFIP
+            List<WSFE.FECAEDetRequest> requestDetails = new();
+            // Alicuotas de IVA
+            List<WSFE.AlicIva> vats = new();
+            // Otros impuestos
+            List<WSFE.Tributo> otherTaxes = new();
+            // Comprobantes asociados
+            List<WSFE.CbteAsoc> associatedInvoices = new();
+
+            // Rango de días para poder emitir un comprobante (según tipo de servicio). Default value: TypeConceptEnum.Services
+            int days = 10;
+
+            try
+            {
+                #region Validations                                
+                if (invoice == null)
+                {
+                    response.Errors.Add(new ApiErrorMessageDto()
+                    {
+                        ErrorCode = "9999",
+                        Severity = "Error",
+                        ErrorMessage = "Objeto inválido o vacio"
+                    });
+                    response.IsSuccess = false;
+
+                    return response;
+                }
+
+                if (!string.IsNullOrEmpty(invoice.CAE))
+                {
+                    response.Errors.Add(new ApiErrorMessageDto()
+                    {
+                        ErrorCode = "9999",
+                        Severity = "Error",
+                        ErrorMessage = "El CAE no puede estar lleno"
+                    });
+                    response.IsSuccess = false;
+
+                    return response;
+                }
+
+                // Fecha emisión
+                if (invoice.IssueDate.Date > DateTime.Now.Date
+                    || (invoice.IssueDate.Date < invoice.IssueDate.AddDays(days * -1).Date)
+                    || (invoice.IssueDate.Date > invoice.IssueDate.AddDays(days).Date))
+                {
+                    response.Errors.Add(new ApiErrorMessageDto()
+                    {
+                        ErrorCode = "9999",
+                        Severity = "Error",
+                        ErrorMessage = "La fecha de solicitud deber igual o anterior a la fecha actual y no superar los " + days.ToString() + " días"
+                    });
+                    response.IsSuccess = false;
+
+                    return response;
+                }
+
+                // Fecha de vencimiento de pago
+                if ((invoice.TypeConcept == TypeConceptEnum.ProductsAndServices
+                    || invoice.TypeConcept == TypeConceptEnum.Services)
+                    && invoice.ExpirationPay == null)
+                {
+                    response.Errors.Add(new ApiErrorMessageDto()
+                    {
+                        ErrorCode = "9999",
+                        Severity = "Error",
+                        ErrorMessage = "La fecha de vencimiento es obligatoria para el tipo de servicio"
+                    });
+                    response.IsSuccess = false;
+
+                    return response;
+                }
+
+                // Fecha de servicio
+                if ((invoice.TypeConcept == TypeConceptEnum.ProductsAndServices
+                    || invoice.TypeConcept == TypeConceptEnum.Services)
+                    && (invoice.FromService == null || invoice.ToService == null))
+                {
+                    response.Errors.Add(new ApiErrorMessageDto()
+                    {
+                        ErrorCode = "9999",
+                        Severity = "Error",
+                        ErrorMessage = "La fecha de servicio desde/hasta es obligatoria para el tipo de servicio"
+                    });
+                    response.IsSuccess = false;
+
+                    return response;
+                }
+
+                if ((invoice.TypeConcept == TypeConceptEnum.ProductsAndServices
+                    || invoice.TypeConcept == TypeConceptEnum.Services)
+                    && (invoice.FromService <= invoice.ToService))
+                {
+                    response.Errors.Add(new ApiErrorMessageDto()
+                    {
+                        ErrorCode = "9999",
+                        Severity = "Error",
+                        ErrorMessage = "La fecha de servicio desde/hasta es obligatoria para el tipo de servicio"
+                    });
+                    response.IsSuccess = false;
+
+                    return response;
+                }
+
+                // Totales
+                if (invoice.Total != (invoice.TotalExemptTax + invoice.TotalNet + invoice.TotalNetNoTax + invoice.TotalOtherTax + invoice.TotalTax))
+                {
+                    response.Errors.Add(new ApiErrorMessageDto()
+                    {
+                        ErrorCode = "9999",
+                        Severity = "Error",
+                        ErrorMessage = "El Total debe ser igual a: Total Neto + Total Exento + Total No Gravado + Total IVA + Total Otros impuestos"
+                    });
+                    response.IsSuccess = false;
+
+                    return response;
+                }
+
+                if (invoice.TotalNetNoTax > invoice.Total
+                    && invoice.TotalNetNoTax < 0)
+                {
+                    response.Errors.Add(new ApiErrorMessageDto()
+                    {
+                        ErrorCode = "9999",
+                        Severity = "Error",
+                        ErrorMessage = "El Total Neto No Gravado debe ser menor o igual a Total"
+                    });
+                    response.IsSuccess = false;
+
+                    return response;
+                }
+
+                if (invoice.TotalNet > invoice.Total
+                    && invoice.TotalNet < 0)
+                {
+                    response.Errors.Add(new ApiErrorMessageDto()
+                    {
+                        ErrorCode = "9999",
+                        Severity = "Error",
+                        ErrorMessage = "El Total Neto debe ser menor o igual a Total"
+                    });
+                    response.IsSuccess = false;
+
+                    return response;
+                }
+
+                if (invoice.TotalExemptTax > invoice.Total
+                    && invoice.TotalExemptTax < 0)
+                {
+                    response.Errors.Add(new ApiErrorMessageDto()
+                    {
+                        ErrorCode = "9999",
+                        Severity = "Error",
+                        ErrorMessage = "El Total Neto debe ser menor o igual a Total"
+                    });
+                    response.IsSuccess = false;
+
+                    return response;
+                }
+
+                // Si es Factura C
+                if (invoice.TypeProof == 11)
+                {
+                    // Exento
+                    invoice.TotalExemptTax = 0;
+                    // No gravado
+                    invoice.TotalNetNoTax = 0;
+                    // IVA
+                    invoice.TotalTax = 0;
+                    invoice.TotalNet = invoice.Total;
+                    invoice.Taxes = null;
+                }
+                else
+                {
+                    if (invoice.Taxes != null && invoice.Taxes.Count > 0)
+                    {
+                        var totalTax = invoice.Taxes.Sum(m => m.Amount);
+
+                        if (invoice.TotalTax != totalTax)
+                        {
+                            response.Errors.Add(new ApiErrorMessageDto()
+                            {
+                                ErrorCode = "9999",
+                                Severity = "Error",
+                                ErrorMessage = "El Total IVA debe ser igual al listado IVA"
+                            });
+                            response.IsSuccess = false;
+
+                            return response;
+                        }
+                    }
+
+                    if (invoice.OtherTaxes != null && invoice.OtherTaxes.Count > 0)
+                    {
+                        var totalOtherTax = invoice.OtherTaxes.Sum(m => m.Amount);
+
+                        if (invoice.TotalOtherTax != totalOtherTax)
+                        {
+                            response.Errors.Add(new ApiErrorMessageDto()
+                            {
+                                ErrorCode = "9999",
+                                Severity = "Error",
+                                ErrorMessage = "El Total Otros Impuestos debe ser igual al listado Otros Tributos"
+                            });
+                            response.IsSuccess = false;
+
+                            return response;
+                        }
+                    }
+
+                }
+
+                // Si es una nota de débito o crédito
+                if (_cancelationInvoices.Contains(invoice.TypeProof))
+                {
+                    if (invoice.AssociatedInvoices == null || invoice.AssociatedInvoices.Count <= 0)
+                    {
+                        response.Errors.Add(new ApiErrorMessageDto()
+                        {
+                            ErrorCode = "9999",
+                            Severity = "Error",
+                            ErrorMessage = "Para anular una factura debe indicar el comprobante asociado"
+                        });
+                        response.IsSuccess = false;
+
+                        return response;
+                    }
+                    else
+                    {
+                        foreach (AssociatedInvoicesDto assoc in invoice.AssociatedInvoices)
+                        {
+                            if (assoc.TypeProof <= 0 || assoc.PointOfSale <= 0 || assoc.Receipt <= 0)
+                            {
+                                response.Errors.Add(new ApiErrorMessageDto()
+                                {
+                                    ErrorCode = "9999",
+                                    Severity = "Error",
+                                    ErrorMessage = "Para anular una factura debe indicar el tipo de comprobante, punto de venta y factura asociada"
+                                });
+                                response.IsSuccess = false;
+
+                                return response;
+                            }
+                        }
+                    }
+
+                }
+
+                #endregion
+
+                #region Armado solicitud
+
+                if (invoice.TypeConcept == TypeConceptEnum.Products)
+                {
+                    days = 5;
+                    invoice.FromService = null;
+                    invoice.ToService = null;
+                }
+
+                if (invoice.Currency == "PES")
+                    invoice.Exchange = 1;
+
+                var token = await GetToken(clientId, TypeWebServicesEnum.wsfe);
+
+                if (token == null)
+                    throw new Exception("No se pudo obtener el token de acceso");
+
+                requestAuth.Token = token.Token;
+                requestAuth.Sign = token.Sign;
+                requestAuth.Cuit = token.Cuit;
+
+                var typeConcept = (int)invoice.TypeConcept;
+                var typeProof = invoice.TypeProof;
+                var pointOfSale = invoice.PointOfSale;
+
+                //Último comprobante generado
+                var lastInvoice = await GetLastInvoice(token, pointOfSale, typeProof);
+                var lastInvoiceNumber = lastInvoice.Data;
+
+                lastInvoiceNumber++;
+
+                //Se genera un solo comprobante
+                requestHeader.CantReg = 1;
+                requestHeader.CbteTipo = invoice.TypeProof;
+                requestHeader.PtoVta = invoice.PointOfSale;
+
+                // Se agrega cabecera a solicitud
+                request.FeCabReq = requestHeader;
+
+                // Listados de IVAs
+                vats = invoice.Taxes.Select(m => new WSFE.AlicIva()
+                {
+                    Id = m.Id,
+                    BaseImp = (double)m.BaseAmount,
+                    Importe = (double)m.Amount
+                }).ToList();
+
+                // Listado de otros imnpuestos
+                otherTaxes = invoice.OtherTaxes.Select(m => new WSFE.Tributo()
+                {
+                    Id = m.Id,
+                    BaseImp = (double)m.BaseAmount,
+                    Alic = (double)m.Aliquot,
+                    Desc = m.Description,
+                    Importe = (double)m.Amount
+                }).ToList();
+
+                // Si es una nota de crédito o débito
+                if (_cancelationInvoices.Contains(invoice.TypeProof))
+                    associatedInvoices = invoice.AssociatedInvoices.Select(m => new WSFE.CbteAsoc()
+                    {
+                        Tipo = m.TypeProof,
+                        PtoVta = m.PointOfSale,
+                        Nro = m.Receipt,
+                        CbteFch = (m.IssueDate != null) ? ((DateTime)m.IssueDate).ToString("yyyyMMdd") : null,
+                        Cuit = (m.Cuit != null) ? m.Cuit.ToString() : null
+                    }).ToList();
+
+                // Se crea detalle de la factura
+                requestDetails.Add(new WSFE.FECAEDetRequest()
+                {
+                    Concepto = typeConcept,
+                    DocTipo = invoice.TypeClientDocument,
+                    DocNro = invoice.ClientDocument,
+                    CbteFch = invoice.IssueDate.ToString("yyyyMMdd"),
+                    CbteDesde = lastInvoiceNumber,
+                    CbteHasta = lastInvoiceNumber,
+                    ImpTotal = (double)invoice.Total, // Total
+                    ImpTotConc = (double)invoice.TotalNetNoTax, // Neto
+                    ImpNeto = (double)invoice.TotalNet, // No gravado
+                    ImpOpEx = (double)invoice.TotalExemptTax, // Exento
+                    ImpTrib = (double)invoice.TotalOtherTax, // Otros impuestos
+                    ImpIVA = (double)invoice.TotalTax, //IVA
+                    FchServDesde = (invoice.FromService == null) ? null : ((DateTime)invoice.FromService).ToString("yyyyMMdd"),
+                    FchServHasta = (invoice.ToService == null) ? null : ((DateTime)invoice.ToService).ToString("yyyyMMdd"),
+                    FchVtoPago = (invoice.ExpirationPay == null || (invoice.TypeConcept == TypeConceptEnum.Products)) ? null : ((DateTime)invoice.ExpirationPay).ToString("yyyyMMdd"),
+                    MonId = invoice.Currency,
+                    MonCotiz = (double)invoice.Exchange,
+
+                    Iva = vats.ToArray(),
+                    Tributos = (invoice.TotalOtherTax == 0) ? null : otherTaxes.ToArray(),
+                    CbtesAsoc = (associatedInvoices.Count > 0) ? associatedInvoices.ToArray() : null
+                });
+
+                // Se agrega detalle a la solicitud de AFIP
+                request.FeDetReq = requestDetails.ToArray();
+                #endregion
+
+                using (var ws = new WSFE.ServiceSoapClient(WSFE.ServiceSoapClient.EndpointConfiguration.ServiceSoap))
+                {
+                    // Se invoca el servicio de AFIP para emitir el comprobante
+                    var responseWS = await ws.FECAESolicitarAsync(requestAuth, request);
+
+                    // Si el servicio devuelve error
+                    if (responseWS.Body.FECAESolicitarResult.Errors != null 
+                        && responseWS.Body.FECAESolicitarResult.Errors.Count() > 0)
+                    {
+                        var messagesWS = responseWS.Body.FECAESolicitarResult.Errors.Select(m => new ApiErrorMessageDto()
+                        {
+                            ErrorCode = m.Code.ToString(),
+                            Severity = "Error",
+                            ErrorMessage = m.Msg
+                        }).ToList();
+
+                        response.Errors.AddRange(messagesWS);
+                        response.IsSuccess = false;
+
+                        return response;
+                    }
+
+                    // Observaciones de AFIP
+                    if (responseWS.Body.FECAESolicitarResult.FeCabResp.Resultado == "R")
+                    {
+                        var observations = responseWS.Body.FECAESolicitarResult.FeDetResp.Select(m => m.Observaciones).FirstOrDefault();
+
+                        var messagesWS = observations.Select(m => new ApiErrorMessageDto()
+                        {
+                            ErrorCode = m.Code.ToString(),
+                            Severity = "Warning",
+                            ErrorMessage = m.Msg
+                        }).ToList();
+
+                        response.Errors.AddRange(messagesWS);
+                    }
+
+                    //SI PROCESO OK AFIP
+                    if (responseWS.Body.FECAESolicitarResult.FeCabResp.Resultado != "R")
+                    {
+                        var result = responseWS.Body.FECAESolicitarResult.FeDetResp.FirstOrDefault(m => m.CbteDesde == lastInvoiceNumber);
+
+                        _globalUniqueID++;
+
+                        invoice.CAE = result.CAE;
+                        invoice.Receipt = result.CbteDesde;
+                        invoice.ExpirCAE = DateTime.ParseExact(result.CAEFchVto, "yyyyMMdd", System.Globalization.CultureInfo.InvariantCulture);
+                        invoice.VerifiedDigit = _globalUniqueID;
+                    }
+                }
+
+                response.Data = invoice;
+                return response;
+            }
+            catch (Exception ex)
+            {
+                response.IsSuccess = false;
+                response.Errors.Add(new ApiErrorMessageDto(ex.Message));
+
+                _logger.Error(ex.Message, ex);
+                return response;
+            }
+        }
+
+        /// <summary>
+        /// Consulta de último numero de recibo por cliente, punto de venta y tipo de comprobante
+        /// </summary>
+        /// <param name="token">Token de acceso a AFIP</param>
+        /// <param name="clientId">Código de cliente vinculado al servicio AFIP</param>
+        /// <param name="pointOfSale">Punto de venta a consultar</param>
+        /// <param name="typeProof">Tipo de comprobante a consultar</param>
+        /// <returns></returns>
+        private async Task<ApiResponseDto<int>> GetLastInvoice(TokensDto token, int pointOfSale, int typeProof)
+        {
             ApiResponseDto<int> response = new();
 
             try
             {
                 using (var ws = new WSFE.ServiceSoapClient(WSFE.ServiceSoapClient.EndpointConfiguration.ServiceSoap))
                 {
-                    var token = await GetToken(clientId, TypeWebServicesEnum.wsfe);
                     var authRequest = new WSFE.FEAuthRequest();
 
                     if (token == null)
@@ -489,6 +931,6 @@ namespace iaas.app.dw.invoices.Application.Services
                 return response;
             }
         }
-
+        #endregion
     }
 }

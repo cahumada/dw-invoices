@@ -15,5 +15,7 @@ namespace iaas.app.dw.invoices.Application.Services.Interfaces
         Task<ApiResponseDto<List<PointOfSalesDto>>> GetPointOfSales(string clientId);
 
         Task<ApiResponseDto<int>> GetLastInvoice(string clientId, int pointOfSale, int typeProof);
+
+        Task<ApiResponseDto<InvoicesDto>> GenerateInvoice(string clientId, InvoicesDto invoice);
     }
 }

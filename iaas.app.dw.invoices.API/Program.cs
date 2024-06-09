@@ -1,3 +1,5 @@
+using DinkToPdf.Contracts;
+using DinkToPdf;
 using iaas.app.dw.invoices.API;
 using iaas.app.dw.invoices.Application.DTOs;
 using iaas.app.dw.invoices.Application.Support;
@@ -8,6 +10,7 @@ using System.Reflection;
 using System.Text.Json.Serialization;
 
 var builder = WebApplication.CreateBuilder(args);
+
 
 #region Logs
 
@@ -23,6 +26,24 @@ builder.Host.UseSerilog((ctx, lc) => lc
         .MinimumLevel.Warning()
         .ReadFrom.Configuration(ctx.Configuration));
 
+#endregion
+
+#region ConfigurationGenPDF
+
+// Defino sobre que arquitectura está corriendo
+var architectureFolder = (IntPtr.Size == 8) ? "64 bit" : "32 bit";
+
+// Armo la ruta donde se encuentra las dll
+var wkHtmlToPdfPath = Path.Combine(builder.Environment.ContentRootPath, $"wkhtmltox\\v0.12.4\\{architectureFolder}\\libwkhtmltox");
+
+// Esta clase la cree dentro del proyecto
+CustomAssemblyLoadContext context = new CustomAssemblyLoadContext();
+
+// Le envío la ruta para que incluya la dll en la ejecución
+context.LoadUnmanagedLibrary(wkHtmlToPdfPath);
+
+// Agrego el convertidor como inyección de dependencia
+builder.Services.AddSingleton(typeof(IConverter), new SynchronizedConverter(new PdfTools()));
 #endregion
 
 builder.Services.AddControllers().AddJsonOptions(options => options.JsonSerializerOptions.Converters.Add(new JsonStringEnumConverter()));
